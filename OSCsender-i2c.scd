@@ -3,7 +3,8 @@
 var n = NetAddr.localAddr; //var n = NetAddr("localhost", 4559);
 var encoders_per_channel = 5;
 var encoder_names = ["Sample", "Volume", "Rate", "Start", "Length"];
-var encoder_osc = ["switch", "amp", "rate", "start", "length"];
+var encoder_osc = ["switch", "amp", "rate", "start", "dur"];
+var encoder_alt_names = ["Attack", "Pitch"];
 
 // Set Up #######################################################
 
@@ -14,9 +15,9 @@ var encoderValue = { { encoderSteps/2 }.dup(encoders_per_channel) }.dup(~channel
 
 // Buttons
 var playBtn, altBtn, buttonCtl, pitchEncoder;
-var lockBtn = Array.fill(~channels, 0);
+//var lockBtn = Array.fill(~channels, 0);
 var muteBtn = Array.fill(~channels, 0);
-var detuneValue = 0;
+var pitchValue = 1;
 
 // GUI Attributes
 var btnWidth = 80;
@@ -29,12 +30,11 @@ var staticText;
 
 // Window #######################################################
 
-
 //if (w.isClosed == true,
 //    {
 w = Window.new("Samplematic").front;
 w.alwaysOnTop = true;
-w.bounds_(Rect(w.bounds.left, w.bounds.top,(btnWidth+6)*(encoders_per_channel+3),(~channels + 1) * 120 + 30));
+w.bounds_(Rect(w.bounds.left, w.bounds.top,(btnWidth+6)*(encoders_per_channel+2),(~channels + 1) * 120 + 30));
 w.view.decorator = d = FlowLayout(w.view.bounds);
 w.view.decorator.gap = 5@5;
 //    },
@@ -49,9 +49,9 @@ e = { |value, t, i|
 	if (~altStatus == 0) {
         msg = "/" ++ encoder_osc[i];
 	} {
-		msg = "/attack";
+       msg = "/" ++ encoder_alt_names[i].toLower;
 	};
-	encoderValue[t][i] = value-encoderValue[t][i];
+	encoderValue[t][i] = value - encoderValue[t][i];
 	if (encoderValue[t][i] == encoderSteps, { encoderValue[t][i] = 1.neg });
 	if (encoderValue[t][i] == (encoderSteps.neg), { encoderValue[t][i] = 1 });
     n.sendMsg( msg, t, encoderValue[t][i] );
@@ -59,6 +59,20 @@ e = { |value, t, i|
 	encoderValue[t][i] = value;
 };
 
+// Random
+r = { |t, i|
+    var isRandom = false;
+    if (~altStatus == 0) {
+        if( i != 1 ) { // All but Volume
+            isRandom = true;
+        }
+    } {
+        if (i <= (encoder_alt_names.size -1)) { // Only alt encoders
+            isRandom = true;
+        }
+    };
+    if (isRandom == true) { encoderGUI[t][i].value_(rrand(0, encoderSteps)).doAction; }
+};
 
 // GUI Elements ###############################################
 
@@ -72,19 +86,11 @@ e = { |value, t, i|
 			encoder_names[i],
 			ControlSpec(0, encoderSteps, step:1, default:encoderSteps/2),
 			{ |ez| e.value(ez.value, t, i); }, // Action
-			initAction: true
+			initAction: false
 		);
 	};
 
 	d.shift(x: 0, y: 40); // Sets the indentation for lockBtn
-
-	// Lock //////////////////////////////////////////////////
-	lockBtn[t] = Button(w, btntrackbounds)
-	.states_( [
-		["Lock", Color.white, Color.blue(0.27)],
-		["Locked", Color.white, Color.red(0.7)],
-	])
-	.valueAction_(0);
 
 	// Mute //////////////////////////////////////////////////
 	muteBtn[t] = Button(w, btntrackbounds)
@@ -94,22 +100,21 @@ e = { |value, t, i|
 	])
 	.mouseDownAction_({ arg view;
 		var msg;
-		msg="/mute";
-		n.sendMsg(msg, t, view.value);
+		msg = "/mute";
+        n.sendMsg( "/mute", t, view.value );
 		msg.scatArgs(t, view.value).postln;
 	})
 	.valueAction_(0);
 
 	// Random //////////////////////////////////////////////
+
 	buttonCtl = Button(w, btntrackbounds)
 	.states_( [
 		["Random", Color.white, Color.blue(0.27)]
 	])
 	.mouseDownAction_({
 		encoders_per_channel.do{ |i|
-			if (lockBtn[t].value == 0) {
-				encoderGUI[t][i].value_(rrand(0, encoderSteps)).doAction;
-			}
+            r.value(t, i);
 		}
 	})
 	.valueAction_(0);
@@ -130,14 +135,6 @@ playBtn = Button(w, btnbounds)
 	.mouseDownAction_({ arg view;
 		var msg;
 		if (view.value == 0) {
-		~channels.do{ |t|
-				//muteBtn[t].value.postln;
-				if (muteBtn[t].value==1) {
-					msg="/mute/"++(t+1);
-					n.sendMsg(msg, 0);
-					msg.scatArgs(0).postln;
-				}
-		};
 			msg="/play";
 		} {
 			msg="/stop";
@@ -155,12 +152,9 @@ playBtn = Button(w, btnbounds)
 	])
 	.mouseDownAction_({
 		~channels.do{ |t|
-			if (lockBtn[t].value == 0) {
-				//encoderGUI[t].value_(rrand(0, encoderSteps)).doAction;
-				encoders_per_channel.do{ |i|
-					encoderGUI[t][i].value_(rrand(0, encoderSteps)).doAction;
-				}
-			}
+			encoders_per_channel.do{ |i|
+                r.value(t, i);
+            }
 		}
 	})
 	.valueAction_(0);
@@ -175,30 +169,34 @@ altBtn = Button(w, btnbounds)
 	.mouseDownAction_({ arg view;
 		if (view.value == 0) {
 			~altStatus = 1;
-			~channels.do{ |i|
-				encoderGUI[i][0].set("Attack");
-				encoderGUI[i][0].setColors(stringColor:Color.red()).font_(Font(bold:true));
-			}
+            encoder_alt_names.size.do{ |encoder|
+                ~channels.do{ |i|
+                    encoderGUI[i][encoder].set(encoder_alt_names[encoder]);
+                    encoderGUI[i][encoder].setColors(stringColor:Color.red()).font_(Font(bold:true));
+                }
+            };
 		} {
 			~altStatus = 0;
-			~channels.do{ |i|
-				encoderGUI[i][0].set(encoder_names[0]);
-				encoderGUI[i][0].setColors(stringColor:Color.black()).font_(Font(bold:false));
+            encoder_alt_names.size.do{ |encoder|
+				~channels.do{ |i|
+                     encoderGUI[i][encoder].set(encoder_names[encoder]);
+				     encoderGUI[i][encoder].setColors(stringColor:Color.black()).font_(Font(bold:false));
+                }
 			}
 		}
 	})
 	.valueAction_(0);
 
 // Encoder OSC Message
-p = { |value|
+p = { |channel, value|
 	var msg;
-	msg="/detune/";
-	detuneValue=value-detuneValue;
-	if (detuneValue == encoderSteps, { detuneValue=1.neg });
-	if (detuneValue == (encoderSteps.neg), { detuneValue=1 });
-	n.sendMsg(msg, detuneValue);
-	msg.scatArgs(detuneValue).postln;
-	detuneValue=value;
+	msg = "/pitch";
+	pitchValue = value - pitchValue;
+	if (pitchValue == encoderSteps, { pitchValue = 1.neg });
+	if (pitchValue == (encoderSteps.neg), { pitchValue = 1 });
+	n.sendMsg(msg, channel, pitchValue);
+	msg.scatArgs(channel, pitchValue).postln;
+	pitchValue = value;
 };
 
 pitchEncoder = EZKnob(
@@ -206,15 +204,15 @@ pitchEncoder = EZKnob(
 	knobbounds,
 	"Pitch",
 	ControlSpec(0, encoderSteps, step:1, default:encoderSteps/2),
-	{ |ez| p.value(ez.value); }, // Action
-	initAction: true
+    { |ez| p.value(-1, ez.value) }, // Action
+	initAction: false
 );
 
 pitchEncoder.setColors(Color.blue(0.27),Color.white,Color.blue(0.27), Color.white, Color.white,nil,nil, Color.grey(0.7));
 
 // Text ///////////////////////////////////////////////////
 
-staticText = StaticText(w,  Rect(0, 0, 330, 120))
+staticText = StaticText(w,  Rect(0, 0, 250, 120))
 	.background_(Color.white())
 	.string_("Samplemàtic I2CEncoders")
 	.font_(Font("Helvetica", 30, true))

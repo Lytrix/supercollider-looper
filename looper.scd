@@ -5,12 +5,11 @@
 
 // User Settings ###############################################################
 
-s.boot;
-
-//s.waitForBoot({
-
 (
-    Buffer.freeAll;
+
+s.waitForBoot({
+
+    //Buffer.freeAll;
 
     ~slices = 16;
     ~channels = 4;
@@ -50,22 +49,29 @@ s.boot;
 
     ~bufs = ~loadBufSubfolders.value(~samplesPath.standardizePath);
 
+    s.sync; // wait for buffers to be loaded
+
     // SynthDef #####################################################################
 
-    SynthDef(\playbuf, { |amp = 0.5, buf, dur = 1, rate = 1, start = 0, release = 0.01, gate = 1|
-        var sig, end, startpos, isForward, frames, env;
+    SynthDef(\playbuf, { |amp = 0.5, buf, dur = 1, rate = 1, start = 0, release = 0.01, gate = 1, tempo = 1, mute = 1, pitch = 1|
+        var sig, end, startpos, isForward, frames, env, clock;
         // If release is 1 the buffer won't be modulated until a new buffer starts playing
         isForward = (rate < 0);
         frames = BufFrames.kr(buf);
-        startpos = abs((frames * isForward) - (frames * start)) - (2 * isForward);
-        sig = PlayBuf.ar(2, buf, BufRateScale.kr(buf) * rate, 1, startpos, loop: 1);
-        //sig = sig * EnvGen.kr(Env.new(times: [0.01, dur, release]), gate: 1, doneAction: 2);
+        //startpos = frames * start;
+        startpos = abs( (frames * isForward) - (frames * start) ) - (2 * isForward);
+        clock = Impulse.kr(1 / (BufDur.kr(buf) * dur));
+        //("startpos"++startpos).postln;
+        sig = PlayBuf.ar(2, buf, BufRateScale.kr(buf) * rate, trigger:clock, startPos:startpos, loop:0);
         env = EnvGen.kr(Env.adsr(releaseTime:release), gate, doneAction:0);
-        // env = EnvGen.kr(Env.perc, gate, doneAction:2);
         sig = sig * env;
-        sig = Mix.ar(sig) * amp;
+        sig = Mix.ar(sig) * amp * mute;
+        sig = PitchShift.ar(sig, pitchRatio:pitch);
+        //start.poll;
         Out.ar(0, sig);
     }).add;
+
+    // Loop Functions ##################################################################
 
     ~tracks = ();
     ~amp = ();
@@ -74,6 +80,9 @@ s.boot;
     ~dur = ();
     ~length = ();
     ~rate = ();
+    ~pitch = ();
+    ~pitch = Array.fill(~channels, 1);
+    ~mute = Array.fill(~channels, 1);
 
     ~initAll = {
         ~channels.do{ |channel|
@@ -101,26 +110,25 @@ s.boot;
 
     ~initAll.value();
 
-    // Loop Functions ################################################################
-
     ~loops = ();
     ~channels.do { |channel|
         ~loops.put(channel, Synth(\playbuf, [
             \amp: ~amp[channel],
             \buf: ~bufs[channel].at(~tracks[channel]),
             \dur: ~length[channel],
-            \rate: ~rate[channel],
-            \start: ~start[channel],
             \gate: 0,
-            \release: 0.5
+            \mute: ~mute[channel],
+            \pitch: 1,
+            \rate: ~rate[channel],
+            \release: 0.5,
+            \start: ~start[channel]
         ]));
     };
 
     ~loopFunction = { |channel|
-
         ~loops[channel].set(\gate, 1);
 
-        "Playing Channel".scatArgs(channel,
+        "*".scatArgs(channel,
             "> Track", ~tracks[channel],
             ">", ~bufs[channel].at(~tracks[channel]).path.replace(~samplesPath.standardizePath)
         ).postln;
@@ -130,12 +138,11 @@ s.boot;
             "Duration:", ~dur[channel].round(1e-2),
             "Rate:", ~rate[channel].round(1e-2)
         ).postln;
-
     };
 
     ~playLoop = { |channel|
         if ( channel == nil,
-            { ~channels.do{ |channel| ~loopFunction.value(channel) }},
+            { ~channels.do{ |channel| ~loopFunction.value(channel); }},
             { ~loopFunction.value(channel) }
         )
     };
@@ -151,25 +158,32 @@ s.boot;
 
     "OSCsender-i2c.scd".loadRelative;
 
-    // Play / Stop
-    ~oscPlay = OSCFunc({ ~playLoop.value() }, 'play', NetAddr.localAddr);
+    // Global 1. Play / Stop
+    ~oscPlay = OSCFunc({ ~playLoop.value(); }, 'play', NetAddr.localAddr);
     ~oscStop = OSCFunc({ ~stopLoop.value() }, 'stop', NetAddr.localAddr);
 
-    // Mute
-    ~oscMute = OSCFunc({ |msg|
-        var channel = msg[1];
-        var value = msg[2];
-        if (value == 0,
-            { ~loops[channel].set(\amp, 0); },
-            { ~loops[channel].set(\amp, ~amp[channel]); }
-        );
-        ~mute[channel] = value;
-    }, 'mute', NetAddr.localAddr);
-
-    // Random
+    // Global 2. Random
     ~oscRandom = OSCFunc({ ~stopLoop.value() }, 'random', NetAddr.localAddr);
 
-    // Sample
+    // Global 3. Pitch
+    ~oscPitch = OSCFunc({ |msg|
+        var ch = msg[1];
+        var value = msg[2];
+        if ( ch == -1,
+            { ~channels.do { |channel|
+                ~pitch[channel] = ~pitch[channel] + (value / 1000);
+                ~loops.at(channel).set(\pitch, ~pitch[channel]);
+                value.postln;
+                ("/pitch " ++ ~pitch[channel]).postln;
+            }},
+            {
+                ~pitch[ch] = ~pitch[ch] + (value / 1000);
+                ~loops.at(ch).set(\pitch, ~pitch[ch]);
+            }
+        );
+    }, 'pitch', NetAddr.localAddr);
+
+    // Channel 1. Sample
     ~oscSample.free;
     ~oscSample = OSCFunc({ |msg|
         var channel = msg[1];
@@ -177,11 +191,11 @@ s.boot;
         if (track > (~bufs[channel].size - 1)) { track = ~bufs[channel].size -1 };
         if (track < 0) { track = 0 };
         ~tracks[channel] = track;
-        ("kaka"++channel++"track"++track).postln;
+        ~dur[channel] = ~duration[channel].at(track);
         ~loops[channel].set(\buf, ~bufs[channel].at(track));
-    }, 'sample', NetAddr.localAddr);
+    }, 'switch', NetAddr.localAddr);
 
-    // Volume
+    // 2. Volume
     ~oscAmp.free;
     ~oscAmp = OSCFunc({ |msg|
         var channel = msg[1];
@@ -191,10 +205,10 @@ s.boot;
         if (value > ~maxValue[\amp]) { value = ~maxValue[\amp] };
         ~amp[channel] = value;
         ~loops[channel].set(\amp, value);
-        ~amp[channel].postln;
+        ("Volume" ++ ~amp[channel]).postln;
     }, 'amp', NetAddr.localAddr);
 
-    // Rate
+    // 3. Rate
     ~oscRate.free;
     ~oscRate = OSCFunc({ |msg|
         var channel = msg[1];
@@ -210,11 +224,48 @@ s.boot;
         };
         ~rate[channel] = value;
         ~loops[channel].set(\rate, value);
-        ~rate[channel].postln;
+        ("Rate" ++ ~rate[channel]).postln;
+        ("Dur" ++ ~dur[channel]).postln;
     }, 'rate', NetAddr.localAddr);
 
+
+    // 4. Start
+    ~oscStart.free;
+    ~oscStart = OSCFunc({ |msg|
+        var channel = msg[1];
+        var value = ~start[channel] + (msg[2] / ~slices);
+        if (value < ~minValue[\start]) { value = ~minValue[\start] };
+        if (value >= ~maxValue[\start]) { value = ~maxValue[\start] - (1 / ~slices) };
+        ~start[channel] = value;
+        ~loops[channel].set(\start, value);
+        ("start" ++  value).postln;
+    }, 'start', NetAddr.localAddr);
+
+    // 5. Length
+    ~oscLength.free;
+    ~oscLength = OSCFunc({ |msg|
+        var channel = msg[1];
+        var value = ~length[channel] + (msg[2] / ~slices);
+        if (~start[channel] + value > ~maxValue[\start]) {
+            value = 1 - ~start[channel];
+        };
+        if (value < (1 / ~slices)) { value = 1 / ~slices };
+        ~length[channel] = value;
+        ~loops[channel].set(\dur, value);
+        ("length" ++  value).postln;
+    }, 'dur', NetAddr.localAddr);
+
+    // 6. Mute
+    ~oscMute = OSCFunc({ |msg|
+        var channel = msg[1];
+        var value = msg[2];
+        ~loops[channel].set(\mute, value);
+        ~mute[channel] = value;
+    }, 'mute', NetAddr.localAddr);
+
+});
+
 );
-//});
 
 // Controllers ################################################################
 
@@ -225,10 +276,11 @@ s.boot;
 ~rate[1] = -1;
 ~loops[1].get(\amp, { arg value; ("amp is now:" + value).postln; });
 ~tracks[1].postln;
+~setparam = {|loop, paramname, paramvalue|
+    ~loops[loops].set(paramname, paramvalue);
+};
 
-
-
-OSCFunc;
+~loops[3].set(\pitch, 0.971);
 
 s.boot;
 s.plotTree;
