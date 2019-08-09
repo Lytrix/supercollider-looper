@@ -1,6 +1,6 @@
 # SuperCollider-Looper
 
-A version of Roger Pibernat's Samplemàtic to run with DUPPA's i2CEncoders.
+A version of Roger Pibernat's <a href="https://github.com/loopier/samplematic">Samplemàtic</a> to run with DUPPA's <a href="https://www.tindie.com/products/saimon/i2cencoder-v2-connect-multiple-encoder-on-i2c-bus/">i2CEncoders</a>.
 
 The default looper has 5 encoders per channel, with alternative functions:
 
