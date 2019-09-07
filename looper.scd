@@ -1,6 +1,6 @@
 /*
-@Description: Super Collider OSC Looper Multitrack with i2CEncoderV2
-@Date: 2019/05/31
+* @Description: Super Collider OSC Looper Multitrack with i2CEncoderV2
+* @Date: 2019/05/31
 */
 
 // User Settings ###############################################################
@@ -70,6 +70,8 @@ s.waitForBoot({
         //start.poll;
         Out.ar(0, sig);
     }).add;
+
+    s.sync; // Fix *** ERROR: SynthDef playbuf not found FAILURE IN SERVER /s_new SynthDef not found
 
     // Loop Functions ##################################################################
 
@@ -159,11 +161,14 @@ s.waitForBoot({
     "OSCsender-i2c.scd".loadRelative;
 
     // Global 1. Play / Stop
-    ~oscPlay = OSCFunc({ ~playLoop.value(); }, 'play', NetAddr.localAddr);
-    ~oscStop = OSCFunc({ ~stopLoop.value() }, 'stop', NetAddr.localAddr);
+	n = NetAddr("192.168.8.100", 57120); // 57120 is sclang default port
+	//n = NetAddr.localAddr;
+
+    ~oscPlay = OSCFunc({ ~playLoop.value(); }, 'play');
+    ~oscStop = OSCFunc({ ~stopLoop.value() }, 'stop');
 
     // Global 2. Random
-    ~oscRandom = OSCFunc({ ~stopLoop.value() }, 'random', NetAddr.localAddr);
+    ~oscRandom = OSCFunc({ ~stopLoop.value() }, 'random');
 
     // Global 3. Pitch
     ~oscPitch = OSCFunc({ |msg|
@@ -181,7 +186,7 @@ s.waitForBoot({
                 ~loops.at(ch).set(\pitch, ~pitch[ch]);
             }
         );
-    }, 'pitch', NetAddr.localAddr);
+    }, 'pitch');
 
     // Channel 1. Sample
     ~oscSample.free;
@@ -193,7 +198,7 @@ s.waitForBoot({
         ~tracks[channel] = track;
         ~dur[channel] = ~duration[channel].at(track);
         ~loops[channel].set(\buf, ~bufs[channel].at(track));
-    }, 'switch', NetAddr.localAddr);
+    }, 'switch');
 
     // 2. Volume
     ~oscAmp.free;
@@ -206,7 +211,7 @@ s.waitForBoot({
         ~amp[channel] = value;
         ~loops[channel].set(\amp, value);
         ("Volume" ++ ~amp[channel]).postln;
-    }, 'amp', NetAddr.localAddr);
+    }, '/amp');
 
     // 3. Rate
     ~oscRate.free;
@@ -226,7 +231,7 @@ s.waitForBoot({
         ~loops[channel].set(\rate, value);
         ("Rate" ++ ~rate[channel]).postln;
         ("Dur" ++ ~dur[channel]).postln;
-    }, 'rate', NetAddr.localAddr);
+    }, 'rate');
 
 
     // 4. Start
@@ -239,7 +244,7 @@ s.waitForBoot({
         ~start[channel] = value;
         ~loops[channel].set(\start, value);
         ("start" ++  value).postln;
-    }, 'start', NetAddr.localAddr);
+    }, 'start');
 
     // 5. Length
     ~oscLength.free;
@@ -253,7 +258,7 @@ s.waitForBoot({
         ~length[channel] = value;
         ~loops[channel].set(\dur, value);
         ("length" ++  value).postln;
-    }, 'dur', NetAddr.localAddr);
+    }, 'dur');
 
     // 6. Mute
     ~oscMute = OSCFunc({ |msg|
@@ -261,7 +266,7 @@ s.waitForBoot({
         var value = msg[2];
         ~loops[channel].set(\mute, value);
         ~mute[channel] = value;
-    }, 'mute', NetAddr.localAddr);
+    }, 'mute');
 
 });
 
@@ -269,12 +274,12 @@ s.waitForBoot({
 
 // Controllers ################################################################
 
-~playLoop.value(1);
-~stopLoop.value();
+~playLoop.value(0);
+~stopLoop.value(0);
 ~loops[1].set(\buf, ~bufs[1].at(4));
 ~loops[1].set(\rate, -2);
 ~rate[1] = -1;
-~loops[1].get(\amp, { arg value; ("amp is now:" + value).postln; });
+~loops[0].get(\amp, { arg value; ("amp is now:" + value).postln; });
 ~tracks[1].postln;
 ~setparam = {|loop, paramname, paramvalue|
     ~loops[loops].set(paramname, paramvalue);
