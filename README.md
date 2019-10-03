@@ -1,4 +1,4 @@
-# SuperCollider-Looper
+# SuperCollider Sample Looper with i2CEncoders
 
 A version of Roger Pibernat's <a href="https://github.com/loopier/samplematic">Samplemàtic</a> to run with DUPPA's <a href="https://www.tindie.com/products/saimon/i2cencoder-v2-connect-multiple-encoder-on-i2c-bus/">i2CEncoders</a>.
 

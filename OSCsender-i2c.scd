@@ -4,13 +4,13 @@ var n = NetAddr.localAddr; //var n = NetAddr("localhost", 4559);
 var encoders_per_channel = 5;
 var encoder_names = ["Sample", "Volume", "Rate", "Start", "Length"];
 var encoder_osc = ["switch", "amp", "rate", "start", "dur"];
-var encoder_alt_names = ["Attack", "Pitch"];
+var encoder_alt_names = ["Delay", "Pitch"];
 
 // Set Up #######################################################
 
 // Encoders
 var encoderGUI = { { 0 }.dup(encoders_per_channel) }.dup(~channels);
-var encoderSteps = 24;
+var encoderSteps = 20;
 var encoderValue = { { encoderSteps/2 }.dup(encoders_per_channel) }.dup(~channels);
 
 // Buttons
@@ -44,19 +44,26 @@ w.view.decorator.gap = 5@5;
 // Action Functions #############################################
 
 // Encoder OSC Message
-e = { |value, t, i|
+e = { |value, channel, i|
 	var msg;
-	if (~altStatus == 0) {
+    if (~altStatus == 0 ||(i > (encoder_alt_names.size - 1))) {
         msg = "/" ++ encoder_osc[i];
 	} {
        msg = "/" ++ encoder_alt_names[i].toLower;
 	};
-	encoderValue[t][i] = value - encoderValue[t][i];
-	if (encoderValue[t][i] == encoderSteps, { encoderValue[t][i] = 1.neg });
-	if (encoderValue[t][i] == (encoderSteps.neg), { encoderValue[t][i] = 1 });
-    n.sendMsg( msg, t, encoderValue[t][i] );
-	msg.scatArgs(t, encoderValue[t][i]).postln;
-	encoderValue[t][i] = value;
+	// /switch works as a Rotary Encoder
+	if (i == 0) {
+		encoderValue[channel][i] = value - encoderValue[channel][i];
+		if (encoderValue[channel][i] == encoderSteps, { encoderValue[channel][i] = 1.neg });
+		if (encoderValue[channel][i] == (encoderSteps.neg), { encoderValue[channel][i] = 1 });
+		n.sendMsg( msg, channel, encoderValue[channel][i] );
+		msg.scatArgs(channel, encoderValue[channel][i]).postln;
+		encoderValue[channel][i] = value;
+	// Works as a knob
+	} {
+		n.sendMsg( msg, channel, value );
+		msg.scatArgs(channel, value).postln;
+	}
 };
 
 // Random
@@ -84,7 +91,7 @@ r = { |t, i|
 			w,
 			knobbounds,
 			encoder_names[i],
-			ControlSpec(0, encoderSteps, step:1, default:encoderSteps/2),
+            ControlSpec(0, encoderSteps, step:1, default:encoderSteps / 2),
 			{ |ez| e.value(ez.value, t, i); }, // Action
 			initAction: false
 		);
@@ -187,16 +194,18 @@ altBtn = Button(w, btnbounds)
 	})
 	.valueAction_(0);
 
-// Encoder OSC Message
+// Pitch OSC Message
 p = { |channel, value|
 	var msg;
 	msg = "/pitch";
-	pitchValue = value - pitchValue;
-	if (pitchValue == encoderSteps, { pitchValue = 1.neg });
-	if (pitchValue == (encoderSteps.neg), { pitchValue = 1 });
-	n.sendMsg(msg, channel, pitchValue);
-	msg.scatArgs(channel, pitchValue).postln;
-	pitchValue = value;
+    // Old Version: Sends Steps instead of Value
+	//pitchValue = value - pitchValue;
+	//if (pitchValue == encoderSteps, { pitchValue = 1.neg });
+	//if (pitchValue == (encoderSteps.neg), { pitchValue = 1 });
+    //n.sendMsg( msg, channel, encoderValue[t][i] );
+	n.sendMsg(msg, channel, value);
+	msg.scatArgs(channel, value).postln;
+	//pitchValue = value;
 };
 
 pitchEncoder = EZKnob(
@@ -217,4 +226,12 @@ staticText = StaticText(w,  Rect(0, 0, 250, 120))
 	.string_("Samplemàtic I2CEncoders")
 	.font_(Font("Helvetica", 30, true))
 	.align_(\center);
+
+// Init ///////////////////////////////////////////////////
+~channels.do{ |t|
+	encoders_per_channel.do{ |i|
+		r.value(t, i);
+	}
+}
+
 )
