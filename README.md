@@ -2,6 +2,14 @@
 
 A version of Roger Pibernat's <a href="https://github.com/loopier/samplematic">Samplemàtic</a> to run with DUPPA's <a href="https://www.tindie.com/products/saimon/i2cencoder-v2-connect-multiple-encoder-on-i2c-bus/">i2CEncoders</a>.
 
+
+## Prerequisite ##
+
+Stereo Wave files are assumed to be used.
+4 folders are required to be this path. Do not put any wavefiles in the root folder.
+~samplesPath = "~/Music/Samples/Samplematic"; 
+Else you will get errors on evaluating '/' or nil starting the program.
+ 
 The default looper has 5 encoders per channel plus 2 alternative functions:
 
 1. Encoder 1: Sample file index
